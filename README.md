@@ -1,5 +1,7 @@
 # omalauncher-code
 
+[<img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="40">](https://www.buymeacoffee.com/strube)
+
 The real desktop **Visual Studio Code** as a window in
 [Omalauncher](https://github.com/SimonSchubert/omalauncher) — the full editor
 with the integrated terminal, extensions, IntelliSense and debugging, not a
@@ -168,6 +170,12 @@ release or an update to the patterns in
 
 **Nothing in the drawer.** `/usr/share/applications/omalauncher-code.desktop`
 must exist and `Exec=` must point at `/usr/bin/omalauncher-code`.
+
+## Support
+
+It works, and it stays that way: if it saved you an evening, you can
+[buy me a coffee](https://www.buymeacoffee.com/strube). Bug reports and a
+star are just as welcome.
 
 ## License
 
