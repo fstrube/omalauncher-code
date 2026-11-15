@@ -107,8 +107,9 @@ close the window, then: ./install.sh
 ```
 
 That takes a couple of minutes, keeps your settings and extensions, applies the
-minimum window size to the new tree, and refuses to start if that patch no
-longer applies.
+minimum window size to the new tree, and warns in yellow if that patch no
+longer applies — it installs anyway, since an editor that opens is better than
+none, and the wrapper repeats the warning at every start.
 
 The patch is also re-applied by the wrapper at every start, so a tree replaced
 by hand — a tarball unpacked over `/opt/vscode-code` — is fixed at the next
@@ -158,9 +159,12 @@ app when the process it started exits. Use `omalauncher-code`.
 **Extension installs fail with a signature error.** The wrapper must have set
 `DOTNET_GCHeapHardLimit`; check you're starting it through `omalauncher-code`.
 
-**A notification says the minimum window size patch failed.** A VS Code update
-moved the code the patch touches. Reinstall with `install.sh`; the error is in
-`~/.local/share/code-gui/patch-failures.log`.
+**A notification says the minimum window size patch failed.** A newer build
+moved the code the patch touches, so `install.sh` warned and installed it
+anyway. The window may not fill the screen in landscape with the keyboard open;
+the error is in `~/.local/share/code-gui/patch-failures.log`, and a patched
+release or an update to the patterns in
+`/usr/lib/omalauncher-code/patch-min-size` is the fix.
 
 **Nothing in the drawer.** `/usr/share/applications/omalauncher-code.desktop`
 must exist and `Exec=` must point at `/usr/bin/omalauncher-code`.

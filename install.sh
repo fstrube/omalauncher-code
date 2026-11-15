@@ -52,6 +52,21 @@ die() {
   exit 1
 }
 
+# Yellow, when there is a terminal to be yellow on. Warnings never stop the
+# install: a VS Code that opens is better than none, and the wrapper repeats the
+# warning (and notifies the phone) at every start.
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then
+  yellow=$'\033[33m'
+  reset=$'\033[0m'
+else
+  yellow=""
+  reset=""
+fi
+
+warn() {
+  printf '%somalauncher-code: warning: %s%s\n' "$yellow" "$*" "$reset" >&2
+}
+
 step() {
   printf '\n==> %s\n' "$*"
 }
@@ -295,6 +310,18 @@ write_settings() {
 SETTINGS
 }
 
+# Best effort, on purpose: a build whose patch no longer applies is still a
+# working editor. Failing here would leave the phone with no VS Code at all,
+# which is worse than a window that doesn't fill the screen in landscape with
+# the keyboard open — and the wrapper warns about exactly that at every start.
+apply_patch() {
+  local err
+  if ! err=$("$LIB/patch-min-size" "$1" 2>&1); then
+    warn "the minimum window size patch did not apply: ${err:-unknown error}"
+    warn "installing anyway. In landscape with the keyboard open the window may not fill the screen; the launcher wrapper warns about this again, and notifies the phone, at every start."
+  fi
+}
+
 if $DRY; then
   printf '    would install: %s (wrapper)\n    %s (minimum window size patch)\n' "$BIN" "$LIB/patch-min-size"
   printf '    would install: %s (settings, first run only), %s, %s\n' "$LIB/settings.default.json" "$DESKTOP" "$ICON"
@@ -311,8 +338,7 @@ step "Applying the minimum window size to the new build"
 if $DRY; then
   printf '    would patch %s/resources/app/out/mainImpl.js\n' "$DEST"
 else
-  "$LIB/patch-min-size" "$STAGE/resources/app/out/mainImpl.js" ||
-    die "the patch no longer applies to this VS Code; nothing was installed"
+  apply_patch "$STAGE/resources/app/out/mainImpl.js"
 fi
 
 step "Replacing $DEST"
