@@ -1,0 +1,17 @@
+name: lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: bash -n install.sh
+      - name: shellcheck
+        run: shellcheck --severity=warning install.sh
+      - name: Help output
+        run: ./install.sh --help

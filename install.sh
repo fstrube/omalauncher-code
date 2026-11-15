@@ -17,7 +17,6 @@
 
 set -euo pipefail
 
-SELF_VERSION=1.0.0
 VSCODE_VER=${VSCODE_VER:-latest}
 
 DEST=/opt/vscode-code
