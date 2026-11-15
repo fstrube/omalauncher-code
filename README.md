@@ -63,7 +63,7 @@ which the wrapper does for you:
   given, and the launcher draws it scaled down into the corner. Lowering the
   minimum makes the window match what the compositor asks for, so it stays full
   width. The patch is applied at install time and re-applied on every launch,
-  and it fails loudly if a VS Code update moves that code — a line on stderr,
+  and it says so out loud if a later build moves that code — a line on stderr,
   a line in `~/.local/share/code-gui/patch-failures.log`, and a notification on
   the phone, because the symptom is otherwise invisible until you open the
   keyboard in landscape.
@@ -76,8 +76,9 @@ The settings written on first run keep dialogs in the window: the launcher turns
 every toplevel window into its own task, so a GTK dialog would open as a second
 Android screen. `files.simpleDialog.enable` makes file, folder and save pickers
 use VS Code's own quick input box, and `window.dialogStyle: "custom"` makes
-message boxes and About draw in the editor. Updates stay with VS Code itself
-(`update.mode: "default"`), so nothing here needs refreshing by hand.
+message boxes and About draw in the editor. VS Code's update check stays on
+(`update.mode: "default"`), so you're told when a newer build exists; applying
+it is the installer's job, as below.
 
 ## Options
 
@@ -95,24 +96,31 @@ and it refuses to touch a running window.
 
 ## Updating
 
-VS Code updates itself: it downloads a new build in the background and offers
-*Restart to Update*. That replaces `/opt/vscode-code`, the minimum window size
-patch included, so the wrapper re-applies the patch at the next start — normally
-a no-op, and the reason a self-update doesn't bring the landscape bug back.
-
-If a new build moves the code that patch touches, the wrapper can't fix it.
-Then the window still opens, but in landscape with the keyboard open it may not
-fill the screen; you get a notification on the phone saying so, and a line in
-`~/.local/share/code-gui/patch-failures.log`. The fix is the installer, which
-fails loudly instead of notifying:
+VS Code checks Microsoft's update server and tells you when a newer build
+exists — but these Linux builds cannot install it: the update service ends up
+calling `openExternal` on the download page, and there is no download, no
+restart, no in-place swap (`updateService.linux.doDownloadUpdate` in
+`resources/app/out/mainImpl.js`). Updating is the installer's job:
 
 ```sh
-./install.sh          # still the update path if you'd rather control it
+close the window, then: ./install.sh
 ```
 
-To keep VS Code from updating itself at all, set `"update.mode": "none"` in
-`~/.local/share/code-gui/User/settings.json`, or `"manual"` to be told a new
-build exists without downloading it.
+That takes a couple of minutes, keeps your settings and extensions, applies the
+minimum window size to the new tree, and refuses to start if that patch no
+longer applies.
+
+The patch is also re-applied by the wrapper at every start, so a tree replaced
+by hand — a tarball unpacked over `/opt/vscode-code` — is fixed at the next
+launch. If a new build moves the code the patch touches, the wrapper can't fix
+it: the window still opens, but in landscape with the keyboard open it may not
+fill the screen. That is what the notification and
+`~/.local/share/code-gui/patch-failures.log` are for, and reinstalling is the
+fix.
+
+To keep VS Code from checking at all, set `"update.mode": "none"` in
+`~/.local/share/code-gui/User/settings.json`, or `"manual"` to check only when
+you ask.
 
 ## Using it on a phone
 

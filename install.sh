@@ -231,10 +231,11 @@ if [ ! -e "$settings" ] && [ -r /usr/lib/omalauncher-code/settings.default.json 
 fi
 
 # Belt and braces: re-apply the minimum window size in case the tree was
-# replaced outside install.sh (which already patched it), such as by VS Code's
-# own updater. Normally a no-op: the helper exits after one grep. If it can no
-# longer apply, the editor still starts but won't fill the screen in landscape
-# with the keyboard open, so say that out loud instead of failing silently.
+# replaced outside install.sh (which already patched it), such as someone
+# unpacking a new tarball over /opt by hand. Normally a no-op: the helper exits
+# after one grep. If it can no longer apply, the editor still starts but won't
+# fill the screen in landscape with the keyboard open, so say that out loud
+# instead of failing silently.
 main_js=$VSCODE_DIR/resources/app/out/mainImpl.js
 if [ -x /usr/lib/omalauncher-code/patch-min-size ]; then
   if ! why=$(/usr/lib/omalauncher-code/patch-min-size "$main_js" 2>&1); then
@@ -286,9 +287,9 @@ write_settings() {
   // The window has its own close button; a menu bar only eats a phone's width.
   "window.menuBarVisibility": "hidden",
   "editor.minimap.enabled": false,
-  // Let VS Code update itself. That replaces the app tree underneath, patch
-  // included, so the launcher wrapper re-applies the minimum window size at
-  // every start and notifies you if it no longer applies.
+  // Let VS Code tell you when a new build exists. These Linux builds have no
+  // self-update: the menu item opens the download page, and updating is this
+  // installer's job.
   "update.mode": "default"
 }
 SETTINGS
