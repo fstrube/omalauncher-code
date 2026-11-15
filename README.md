@@ -63,7 +63,10 @@ which the wrapper does for you:
   given, and the launcher draws it scaled down into the corner. Lowering the
   minimum makes the window match what the compositor asks for, so it stays full
   width. The patch is applied at install time and re-applied on every launch,
-  and it fails loudly if a VS Code update moves that code.
+  and it fails loudly if a VS Code update moves that code — a line on stderr,
+  a line in `~/.local/share/code-gui/patch-failures.log`, and a notification on
+  the phone, because the symptom is otherwise invisible until you open the
+  keyboard in landscape.
 
 `DOTNET_GCHeapHardLimit` is set too: VS Code verifies extensions with a .NET
 tool that can't size its heap under proot, which otherwise makes every extension
@@ -73,8 +76,8 @@ The settings written on first run keep dialogs in the window: the launcher turns
 every toplevel window into its own task, so a GTK dialog would open as a second
 Android screen. `files.simpleDialog.enable` makes file, folder and save pickers
 use VS Code's own quick input box, and `window.dialogStyle: "custom"` makes
-message boxes and About draw in the editor. `update.mode` is `none` so the
-built-in updater can't replace the patched files underneath the installer.
+message boxes and About draw in the editor. Updates stay with VS Code itself
+(`update.mode: "default"`), so nothing here needs refreshing by hand.
 
 ## Options
 
@@ -86,9 +89,30 @@ built-in updater can't replace the patched files underneath the installer.
 ./install.sh --uninstall     remove the program, keep settings and extensions
 ```
 
-Re-running it is how you update, and it is safe to run twice: the new build is
-downloaded and patched next to the old one and only then swapped in, and it
-refuses to touch a running window.
+Re-running it is how you update by hand, and it is safe to run twice: the new
+build is downloaded and patched next to the old one and only then swapped in,
+and it refuses to touch a running window.
+
+## Updating
+
+VS Code updates itself: it downloads a new build in the background and offers
+*Restart to Update*. That replaces `/opt/vscode-code`, the minimum window size
+patch included, so the wrapper re-applies the patch at the next start — normally
+a no-op, and the reason a self-update doesn't bring the landscape bug back.
+
+If a new build moves the code that patch touches, the wrapper can't fix it.
+Then the window still opens, but in landscape with the keyboard open it may not
+fill the screen; you get a notification on the phone saying so, and a line in
+`~/.local/share/code-gui/patch-failures.log`. The fix is the installer, which
+fails loudly instead of notifying:
+
+```sh
+./install.sh          # still the update path if you'd rather control it
+```
+
+To keep VS Code from updating itself at all, set `"update.mode": "none"` in
+`~/.local/share/code-gui/User/settings.json`, or `"manual"` to be told a new
+build exists without downloading it.
 
 ## Using it on a phone
 
@@ -125,6 +149,10 @@ app when the process it started exits. Use `omalauncher-code`.
 
 **Extension installs fail with a signature error.** The wrapper must have set
 `DOTNET_GCHeapHardLimit`; check you're starting it through `omalauncher-code`.
+
+**A notification says the minimum window size patch failed.** A VS Code update
+moved the code the patch touches. Reinstall with `install.sh`; the error is in
+`~/.local/share/code-gui/patch-failures.log`.
 
 **Nothing in the drawer.** `/usr/share/applications/omalauncher-code.desktop`
 must exist and `Exec=` must point at `/usr/bin/omalauncher-code`.

@@ -231,10 +231,24 @@ if [ ! -e "$settings" ] && [ -r /usr/lib/omalauncher-code/settings.default.json 
 fi
 
 # Belt and braces: re-apply the minimum window size in case the tree was
-# replaced outside install.sh (which already patched it). Never fatal.
+# replaced outside install.sh (which already patched it), such as by VS Code's
+# own updater. Normally a no-op: the helper exits after one grep. If it can no
+# longer apply, the editor still starts but won't fill the screen in landscape
+# with the keyboard open, so say that out loud instead of failing silently.
 main_js=$VSCODE_DIR/resources/app/out/mainImpl.js
 if [ -x /usr/lib/omalauncher-code/patch-min-size ]; then
-  /usr/lib/omalauncher-code/patch-min-size "$main_js" >/dev/null 2>&1 || true
+  if ! why=$(/usr/lib/omalauncher-code/patch-min-size "$main_js" 2>&1); then
+    failure="minimum window size patch failed: ${why:-unknown error}"
+    log=$VSCODE_USER_DATA/patch-failures.log
+    printf '%s %s\n' "$(date -Is 2>/dev/null || echo '?')" "$failure" \
+      >> "$log" 2>/dev/null || true
+    printf 'omalauncher-code: %s (logged to %s)\n' "$failure" "$log" >&2
+    # A toast on the phone: the window has no room for one this early, and the
+    # log only helps someone who thinks to look.
+    if command -v omalauncher >/dev/null 2>&1; then
+      omalauncher notify "VS Code" "Minimum window size patch failed: reinstall omalauncher-code. Until then the window may not fill the screen in landscape with the keyboard open." >/dev/null 2>&1 || true
+    fi
+  fi
 fi
 
 args=(
@@ -272,9 +286,10 @@ write_settings() {
   // The window has its own close button; a menu bar only eats a phone's width.
   "window.menuBarVisibility": "hidden",
   "editor.minimap.enabled": false,
-  // Updates come from install.sh, which re-applies the minimum window size.
-  // The built-in updater would replace the patched files underneath it.
-  "update.mode": "none"
+  // Let VS Code update itself. That replaces the app tree underneath, patch
+  // included, so the launcher wrapper re-applies the minimum window size at
+  // every start and notifies you if it no longer applies.
+  "update.mode": "default"
 }
 SETTINGS
 }
