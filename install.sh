@@ -81,15 +81,13 @@ warn() {
   printf '%somalauncher-code: warning: %s%s\n' "$yellow" "$*" "$err_reset" >&2
 }
 
-# A step in blue, what it found indented in blue, the good news in green.
+# Only the headings carry colour: a step in blue, the closing banner in green.
+# What a step found, and what it would do, is plain default text — the eye can
+# then find the next step by scanning for blue instead of reading every line.
 step() { printf '\n%s==> %s%s\n' "$blue" "$*" "$out_reset"; }
-note() { printf '%s    %s%s\n' "$blue" "$*" "$out_reset"; }
+note() { printf '    %s\n' "$*"; }
 ok() { printf '%s    %s%s\n' "$green" "$*" "$out_reset"; }
 success() { printf '\n%s==> %s%s\n' "$green" "$*" "$out_reset"; }
-
-# The closing prose (where things live, what to do next) is information too, so
-# it is blue as a block; with colour off it prints exactly as before.
-info_block() { printf '%s' "$blue"; cat; printf '%s' "$out_reset"; }
 
 # Runs a command, or only says it when --dry-run.
 do_() {
@@ -129,7 +127,7 @@ if $UNINSTALL; then
     fi
   done
   success "Done"
-  info_block <<'EOF'
+  cat <<'EOF'
 Your settings and extensions are yours, so they are still there:
   ~/.local/share/code-gui   settings, window state, workspace storage
   ~/.vscode/extensions      installed extensions
@@ -400,7 +398,7 @@ fi
 
 version=$(installed_version)
 success "Done: VS Code ${version:-$VSCODE_VER} in $DEST"
-info_block <<EOF
+cat <<EOF
 
 Open "VS Code" from the drawer, or run: omalauncher-code [folder]
 The first launch takes about 20 seconds.
