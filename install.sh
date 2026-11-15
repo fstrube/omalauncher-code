@@ -47,34 +47,54 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Colour, per stream: what the install says goes to stdout, what can go wrong to
+# stderr, and each is coloured only when that stream is a terminal and colour is
+# wanted (NO_COLOR, TERM=dumb). Warnings never stop the install: a VS Code that
+# opens is better than none, and the wrapper repeats the warning (and notifies
+# the phone) at every start.
+colors_off() { [ -n "${NO_COLOR:-}" ] || [ "${TERM:-}" = dumb ]; }
+if [ -t 1 ] && ! colors_off; then
+  blue=$'\033[34m'
+  green=$'\033[32m'
+  out_reset=$'\033[0m'
+else
+  blue=""
+  green=""
+  out_reset=""
+fi
+if [ -t 2 ] && ! colors_off; then
+  yellow=$'\033[33m'
+  red=$'\033[31m'
+  err_reset=$'\033[0m'
+else
+  yellow=""
+  red=""
+  err_reset=""
+fi
+
 die() {
-  printf 'omalauncher-code: %s\n' "$*" >&2
+  printf '%somalauncher-code: %s%s\n' "$red" "$*" "$err_reset" >&2
   exit 1
 }
 
-# Yellow, when there is a terminal to be yellow on. Warnings never stop the
-# install: a VS Code that opens is better than none, and the wrapper repeats the
-# warning (and notifies the phone) at every start.
-if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then
-  yellow=$'\033[33m'
-  reset=$'\033[0m'
-else
-  yellow=""
-  reset=""
-fi
-
 warn() {
-  printf '%somalauncher-code: warning: %s%s\n' "$yellow" "$*" "$reset" >&2
+  printf '%somalauncher-code: warning: %s%s\n' "$yellow" "$*" "$err_reset" >&2
 }
 
-step() {
-  printf '\n==> %s\n' "$*"
-}
+# A step in blue, what it found indented in blue, the good news in green.
+step() { printf '\n%s==> %s%s\n' "$blue" "$*" "$out_reset"; }
+note() { printf '%s    %s%s\n' "$blue" "$*" "$out_reset"; }
+ok() { printf '%s    %s%s\n' "$green" "$*" "$out_reset"; }
+success() { printf '\n%s==> %s%s\n' "$green" "$*" "$out_reset"; }
+
+# The closing prose (where things live, what to do next) is information too, so
+# it is blue as a block; with colour off it prints exactly as before.
+info_block() { printf '%s' "$blue"; cat; printf '%s' "$out_reset"; }
 
 # Runs a command, or only says it when --dry-run.
 do_() {
   if $DRY; then
-    printf '    would run: %s\n' "$*"
+    note "would run: $*"
   else
     "$@"
   fi
@@ -92,8 +112,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Empty when there is no install yet (a --dry-run on a fresh phone), and never
+# fatal: sed exits 2 for a missing file, and this runs under pipefail + -e.
 installed_version() {
-  sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$DEST/resources/app/package.json" 2>/dev/null | head -1
+  [ -f "$DEST/resources/app/package.json" ] || return 0
+  sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$DEST/resources/app/package.json" | head -1 || true
 }
 
 # --- uninstall -------------------------------------------------------------
@@ -105,8 +128,8 @@ if $UNINSTALL; then
       do_ rm -rf "$path"
     fi
   done
-  step "Done"
-  cat <<'EOF'
+  success "Done"
+  info_block <<'EOF'
 Your settings and extensions are yours, so they are still there:
   ~/.local/share/code-gui   settings, window state, workspace storage
   ~/.vscode/extensions      installed extensions
@@ -124,7 +147,7 @@ step "Checking this device"
 for tool in curl tar sed grep; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is missing"
 done
-printf '    arch, root and tools: ok\n'
+ok "arch, root and tools: ok"
 
 if pgrep -f "$DEST/code" >/dev/null 2>&1; then
   die "VS Code is running; close its window and run this again"
@@ -140,23 +163,23 @@ if ! $NO_DEPS && command -v pacman >/dev/null 2>&1; then
     pacman -Q "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
   done
   if [ ${#missing[@]} -gt 0 ]; then
-    printf '    missing: %s\n' "${missing[*]}"
+    note "missing: ${missing[*]}"
     # Not fatal: the editor works without libxss/libnotify, and a stale sync db
     # shouldn't stop the install. wayland-utils only affects scale detection.
     do_ pacman -S --needed --noconfirm "${missing[@]}" ||
-      printf '    pacman could not install them; run pacman -Syu and try again\n'
+      note "pacman could not install them; run pacman -Syu and try again"
   else
-    printf '    all present\n'
+    ok "all present"
   fi
 else
-  printf '    skipped (--no-deps or no pacman), VS Code needs: %s\n' "${DEPENDS[*]}"
+  note "skipped (--no-deps or no pacman), VS Code needs: ${DEPENDS[*]}"
 fi
 
 # --- the build -------------------------------------------------------------
 
 step "Downloading VS Code ${VSCODE_VER} (arm64)"
 if $DRY; then
-  printf '    would download: https://update.code.visualstudio.com/%s/linux-arm64/stable\n' "$VSCODE_VER"
+  note "would download: https://update.code.visualstudio.com/$VSCODE_VER/linux-arm64/stable"
 else
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/omalauncher-code.XXXXXX")
   url="https://update.code.visualstudio.com/${VSCODE_VER}/linux-arm64/stable"
@@ -164,7 +187,7 @@ else
   if [ -t 2 ]; then curl_args=(-fL --progress-bar); else curl_args=(-fsSL); fi
   curl "${curl_args[@]}" -o "$tmp/vscode.tar.gz" "$url" || die "download failed: $url"
   size=$(du -h "$tmp/vscode.tar.gz" | cut -f1)
-  printf '    downloaded %s\n' "$size"
+  ok "downloaded $size"
   tar -tzf "$tmp/vscode.tar.gz" >/dev/null 2>&1 || die "the download is not a tarball"
 
   step "Unpacking to $STAGE"
@@ -323,8 +346,9 @@ apply_patch() {
 }
 
 if $DRY; then
-  printf '    would install: %s (wrapper)\n    %s (minimum window size patch)\n' "$BIN" "$LIB/patch-min-size"
-  printf '    would install: %s (settings, first run only), %s, %s\n' "$LIB/settings.default.json" "$DESKTOP" "$ICON"
+  note "would install: $BIN (wrapper)"
+  note "would install: $LIB/patch-min-size (minimum window size patch)"
+  note "would install: $LIB/settings.default.json (settings, first run only), $DESKTOP, $ICON"
 else
   write_patch_helper > "$LIB/patch-min-size"
   chmod 755 "$LIB/patch-min-size"
@@ -336,7 +360,7 @@ fi
 
 step "Applying the minimum window size to the new build"
 if $DRY; then
-  printf '    would patch %s/resources/app/out/mainImpl.js\n' "$DEST"
+  note "would patch $DEST/resources/app/out/mainImpl.js"
 else
   apply_patch "$STAGE/resources/app/out/mainImpl.js"
 fi
@@ -344,14 +368,14 @@ fi
 step "Replacing $DEST"
 do_ rm -rf "$DEST"
 if $DRY; then
-  printf '    would move %s into place\n' "$STAGE"
+  note "would move $STAGE into place"
 else
   mv "$STAGE" "$DEST"
 fi
 
 step "Installing the drawer entry"
 if $DRY; then
-  printf '    would write %s\n' "$DESKTOP"
+  note "would write $DESKTOP"
 else
   cp "$DEST/resources/app/resources/linux/code.png" "$ICON"
   chmod 644 "$ICON"
@@ -375,8 +399,8 @@ fi
 # --- done ------------------------------------------------------------------
 
 version=$(installed_version)
-step "Done: VS Code ${version:-$VSCODE_VER} in $DEST"
-cat <<EOF
+success "Done: VS Code ${version:-$VSCODE_VER} in $DEST"
+info_block <<EOF
 
 Open "VS Code" from the drawer, or run: omalauncher-code [folder]
 The first launch takes about 20 seconds.
