@@ -6,8 +6,10 @@
 # to /opt/vscode-code, and installs the things that make it usable on a phone: a
 # launcher wrapper (Wayland flags, project quirks), a drawer entry, settings for
 # a phone-sized window, and two small patches to VS Code's own JavaScript (its
-# minimum window size, and its editor type menu). Nothing is redistributed:
-# every run fetches VS Code from update.code.visualstudio.com itself.
+# minimum window size, and its editor type menu) — plus the checksum VS Code
+# records for the patched file, so it does not report the install as corrupt.
+# Nothing is redistributed: every run fetches VS Code from
+# update.code.visualstudio.com itself.
 #
 #   curl -fsSL https://raw.githubusercontent.com/fstrube/omalauncher-code/main/install.sh | bash
 #   ./install.sh --version 1.146.0     pin a build instead of the latest stable
@@ -228,14 +230,21 @@ fi
 #    items but not about that new button. The menu is open by then, so it loses
 #    focus to the editor and closes at once — it flashes for a frame. Teaching
 #    the check about the button keeps the focus in the menu.
+#
+# VS Code also keeps a checksum of that second file in product.json and, at every
+# start, warns that the installation "appears to be corrupt" when it no longer
+# matches — which is exactly what editing the file does. So the patch also
+# records the new checksum: the file is not corrupt, it is patched, and the
+# check should say so.
 write_patch_helper() {
   cat <<'PATCH'
 #!/bin/sh
-# Patch VS Code's own JavaScript for a phone window (see install.sh in
-# omalauncher-code). Takes the VS Code directory. Each patch is a fixed string
-# replacement that is a no-op once it has been applied. If VS Code has moved
-# that code the patch cannot apply: the others still do, the message names the
-# one that is missing, and the exit status is non-zero.
+# Patch VS Code's own JavaScript for a phone window, and keep the checksum it
+# records for the patched file in step (see install.sh in omalauncher-code).
+# Takes the VS Code directory. Each patch is a fixed string replacement that is a
+# no-op once it has been applied. If VS Code has moved that code the patch cannot
+# apply: the others still do, the message names the one that is missing, and the
+# exit status is non-zero.
 set -e
 dir=${1:-/opt/vscode-code}
 failed=""
@@ -269,6 +278,47 @@ elif ! grep -q 'dm(n,"breadcrumbs-editor-type",this.titleContainer)' "$wb"; then
     echo "editor type menu: pattern not found, update the patterns in $0" >&2
     failed=yes
   }
+fi
+
+# base64 of the sha256 of a file, the form VS Code records its checksums in
+# (see step 3). Padded here; the caller strips the padding.
+file_checksum() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 -binary "$1" | base64 -w0
+  elif command -v base64 >/dev/null 2>&1 && command -v xxd >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1 | xxd -r -p | base64 -w0
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import base64,hashlib,sys;sys.stdout.write(base64.b64encode(hashlib.sha256(open(sys.argv[1],"rb").read()).digest()).decode())' "$1"
+  fi
+}
+
+# 3. VS Code compares workbench.desktop.main.js against the checksum it shipped
+#    in product.json, at every start, and warns that the installation "appears to
+#    be corrupt" when they differ. Patching the file makes them differ, so record
+#    the patched file's checksum — in the form VS Code stores it (sha256, base64,
+#    without padding).
+wb_rel=vs/workbench/workbench.desktop.main.js
+product=$dir/resources/app/product.json
+if [ ! -f "$wb" ]; then
+  : # already reported above
+elif [ ! -f "$product" ]; then
+  echo "installation checksum: no $product" >&2
+  failed=yes
+elif ! sum=$(file_checksum "$wb") || [ -z "$sum" ]; then
+  echo "installation checksum: need openssl, xxd or python3 to hash $wb" >&2
+  failed=yes
+else
+  sum=$(printf '%s' "$sum" | tr -d '=')
+  recorded=$(sed -n "s#^[[:space:]]*\"$wb_rel\": \"\([^\"]*\)\".*#\1#p" "$product")
+  if [ -n "$recorded" ] && [ "$recorded" != "$sum" ]; then
+    sed -i "s#\"$wb_rel\": \"$recorded\"#\"$wb_rel\": \"$sum\"#" "$product"
+    recorded=$(sed -n "s#^[[:space:]]*\"$wb_rel\": \"\([^\"]*\)\".*#\1#p" "$product")
+    [ "$recorded" = "$sum" ] || {
+      echo "installation checksum: could not record it in $product" >&2
+      failed=yes
+    }
+  fi
+  # A build that lists no checksum for the file has nothing to keep in step.
 fi
 
 [ -z "$failed" ] || exit 1
@@ -383,13 +433,13 @@ apply_patch() {
   local err
   if ! err=$("$LIB/patch-vscode" "$1" 2>&1); then
     warn "a patch did not apply: ${err:-unknown error}"
-    warn "installing anyway. The editor still runs, but the window can be too small in landscape with the keyboard open, and the editor type menu (the › at the end of the breadcrumbs) can close as soon as it opens. The launcher wrapper warns again, and notifies the phone, at every start."
+    warn "installing anyway. The editor still runs, but the window can be too small in landscape with the keyboard open, the editor type menu (the › at the end of the breadcrumbs) can close as soon as it opens, and VS Code may warn that the installation was modified. The launcher wrapper warns again, and notifies the phone, at every start."
   fi
 }
 
 if $DRY; then
   note "would install: $BIN (wrapper)"
-  note "would install: $LIB/patch-vscode (minimum window size and editor type menu patches)"
+  note "would install: $LIB/patch-vscode (minimum window size and editor type menu patches, and VS Code's checksum for the patched file)"
   note "would install: $LIB/settings.default.json (settings, first run only), $DESKTOP, $ICON"
 else
   write_patch_helper > "$LIB/patch-vscode"
@@ -404,7 +454,7 @@ fi
 
 step "Applying the phone patches to the new build"
 if $DRY; then
-  note "would patch mainImpl.js and vs/workbench/workbench.desktop.main.js in $DEST/resources/app/out"
+  note "would patch mainImpl.js and vs/workbench/workbench.desktop.main.js in $DEST/resources/app/out, and record the new checksum of the latter in product.json"
 else
   apply_patch "$STAGE"
 fi

@@ -32,7 +32,7 @@ repository contains no Microsoft binaries.
 | `/opt/vscode-code` | the official `linux-arm64` build, unpacks to ~1 GB |
 | `/usr/bin/omalauncher-code` | wrapper: the Wayland and proot flags VS Code needs here |
 | `/usr/lib/omalauncher-code/settings.default.json` | copied to your settings on first run only |
-| `/usr/lib/omalauncher-code/patch-vscode` | patches VS Code's minimum window size and its editor type menu |
+| `/usr/lib/omalauncher-code/patch-vscode` | patches VS Code's minimum window size and its editor type menu, and keeps the checksum it records for the patched file in step |
 | `/usr/share/applications/omalauncher-code.desktop` | the drawer entry |
 | `/usr/share/icons/vscode.png` | its icon |
 
@@ -80,6 +80,14 @@ line in `~/.local/share/code-gui/patch-failures.log`, and a notification on the
 phone, because the symptoms are otherwise easy to miss: one needs a keyboard in
 landscape, the other looks like the menu is simply broken.
 
+VS Code keeps a checksum of `workbench.desktop.main.js` in its own
+`product.json` and, at every start, warns that the installation "appears to be
+corrupt" when the file no longer matches. Editing the file makes it not match, so
+the patch records the new checksum as it goes: the file is patched, not corrupt,
+and the record is what VS Code's own installer would have written. There is
+nothing to forge — the check is a plain string comparison, with no signature and
+no second copy to consult.
+
 `DOTNET_GCHeapHardLimit` is set too: VS Code verifies extensions with a .NET
 tool that can't size its heap under proot, which otherwise makes every extension
 install fail with "cannot verify the extension signature ... UnknownError".
@@ -119,17 +127,19 @@ close the window, then: ./install.sh
 ```
 
 That takes a couple of minutes, keeps your settings and extensions, applies both
-patches to the new tree, and warns in yellow if one of them no longer applies —
-it installs anyway, since an editor that opens is better than none, and the
-wrapper repeats the warning at every start.
+patches to the new tree, records VS Code's checksum for the patched file, and
+warns in yellow if a patch no longer applies — it installs anyway, since an
+editor that opens is better than none, and the wrapper repeats the warning at
+every start.
 
 The patches are also re-applied by the wrapper at every start, so a tree replaced
 by hand — a tarball unpacked over `/opt/vscode-code` — is fixed at the next
 launch. If a new build moves the code a patch touches, the wrapper can't fix it:
 the window still opens, but in landscape with the keyboard open it may not fill
-the screen, and the editor type menu may close as soon as it opens. That is what
-the notification and `~/.local/share/code-gui/patch-failures.log` are for, and
-reinstalling is the fix.
+the screen, the editor type menu may close as soon as it opens, and VS Code may
+say the installation was modified. That is what the notification and
+`~/.local/share/code-gui/patch-failures.log` are for, and reinstalling is the
+fix.
 
 To keep VS Code from checking at all, set `"update.mode": "none"` in
 `~/.local/share/code-gui/User/settings.json`, or `"manual"` to check only when
@@ -177,12 +187,21 @@ Preview — the editor type menu patch is missing, so follow the notification
 below: `install.sh` again, or let the wrapper try at the next start. Other menus
 are unaffected by it.
 
+**VS Code says the installation "appears to be corrupt".** It is not: it is
+patched. VS Code compares `workbench.desktop.main.js` with the checksum recorded
+in its `product.json` and warns when the two differ, which is exactly what the
+editor type menu patch makes them do — so installs from before 1.0.2 show this.
+Since 1.0.2 the patch records the new checksum as well; run `install.sh` once to
+get that version of the helper (starting the editor re-applies both patches, but
+only the newer helper updates the checksum), then restart the editor. Nothing is
+reinstalled and nothing is lost.
+
 **A notification says a patch did not apply.** A newer build moved the code a
 patch touches, so `install.sh` warned and installed it anyway. The window may
-not fill the screen in landscape with the keyboard open, and the editor type
-menu may close as soon as it opens. The error is in
-`~/.local/share/code-gui/patch-failures.log`, and an update to the patterns in
-`/usr/lib/omalauncher-code/patch-vscode` is the fix.
+not fill the screen in landscape with the keyboard open, the editor type menu
+may close as soon as it opens, and VS Code may report the installation as
+modified. The error is in `~/.local/share/code-gui/patch-failures.log`, and an
+update to the patterns in `/usr/lib/omalauncher-code/patch-vscode` is the fix.
 
 **Nothing in the drawer.** `/usr/share/applications/omalauncher-code.desktop`
 must exist and `Exec=` must point at `/usr/bin/omalauncher-code`.
