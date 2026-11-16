@@ -3,10 +3,11 @@
 # omalauncher-code — install the desktop VS Code as a window in Omalauncher.
 #
 # Downloads the official VS Code Linux arm64 build from Microsoft, unpacks it
-# to /opt/vscode-code, and installs the three things that make it usable on a
-# phone: a launcher wrapper (Wayland flags, project quirks), a drawer entry, and
-# an in-window dialog patch. Nothing is redistributed: every run fetches VS Code
-# from update.code.visualstudio.com itself.
+# to /opt/vscode-code, and installs the things that make it usable on a phone: a
+# launcher wrapper (Wayland flags, project quirks), a drawer entry, settings for
+# a phone-sized window, and two small patches to VS Code's own JavaScript (its
+# minimum window size, and its editor type menu). Nothing is redistributed:
+# every run fetches VS Code from update.code.visualstudio.com itself.
 #
 #   curl -fsSL https://raw.githubusercontent.com/fstrube/omalauncher-code/main/install.sh | bash
 #   ./install.sh --version 1.146.0     pin a build instead of the latest stable
@@ -37,7 +38,16 @@ UNINSTALL=false
 tmp=""
 
 usage() {
-  sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+  # Not read from $0: under `curl … | bash` that is "bash", not this file.
+  cat <<'USAGE'
+omalauncher-code — install the desktop VS Code as a window in Omalauncher.
+
+  curl -fsSL https://raw.githubusercontent.com/fstrube/omalauncher-code/main/install.sh | bash
+  ./install.sh --version 1.146.0     pin a build instead of the latest stable
+  ./install.sh --dry-run             say what would happen, change nothing
+  ./install.sh --no-deps             don't let pacman install missing libraries
+  ./install.sh --uninstall           remove the program, keep your settings
+USAGE
   exit "${1:-0}"
 }
 
@@ -198,35 +208,70 @@ fi
 
 # --- the fixes -------------------------------------------------------------
 
-step "Installing the launcher wrapper, patch and settings"
+step "Installing the launcher wrapper, patches and settings"
 if ! $DRY; then
   mkdir -p "$LIB" "$(dirname "$ICON")" "$(dirname "$DESKTOP")"
 fi
 
-# VS Code hardcodes a 400x270dp minimum window size. In landscape with the soft
-# keyboard open the launcher asks a window for 1200x39dp; Chromium clamps that to
-# the minimum, the buffer ends up taller than the space it was given, and the
-# launcher draws it scaled down into the corner. Lowering the minimum makes the
-# window match what the compositor asks for, so it stays full width.
+# Two things in VS Code misbehave in a phone window. Both are fixed by editing
+# its own JavaScript, since no setting reaches them:
+#
+# 1. It hardcodes a 400x270dp minimum window size. In landscape with the soft
+#    keyboard open the launcher asks a window for 1200x39dp; Chromium clamps that
+#    to the minimum, the buffer ends up taller than the space it was given, and
+#    the launcher draws it scaled down into the corner. A lower minimum makes the
+#    window match what the compositor asks for, so it stays full width.
+# 2. Tapping the editor type menu (the › at the right end of the breadcrumbs,
+#    the one that switches a file between Text Editor and Markdown Preview)
+#    refocuses the editor, because the title bar's "a click in here returns
+#    focus to the editor" check knows about the action bar and the breadcrumb
+#    items but not about that new button. The menu is open by then, so it loses
+#    focus to the editor and closes at once — it flashes for a frame. Teaching
+#    the check about the button keeps the focus in the menu.
 write_patch_helper() {
   cat <<'PATCH'
 #!/bin/sh
-# Lower VS Code's hardcoded minimum window size (see install.sh in
-# omalauncher-code). Exits non-zero, changing nothing, if the size moved:
-# the alternate string you can pass as the second argument is what the
-# previous pattern looked like once patched.
+# Patch VS Code's own JavaScript for a phone window (see install.sh in
+# omalauncher-code). Takes the VS Code directory. Each patch is a fixed string
+# replacement that is a no-op once it has been applied. If VS Code has moved
+# that code the patch cannot apply: the others still do, the message names the
+# one that is missing, and the exit status is non-zero.
 set -e
-file=${1:-/opt/vscode-code/resources/app/out/mainImpl.js}
-[ -f "$file" ] || { echo "patch-min-size: no $file" >&2; exit 1; }
-grep -q 'bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$file" && exit 0
-sed -i \
-  -e 's/bb={WIDTH:400,WIDTH_WITH_VERTICAL_PANEL:600,HEIGHT:270}/bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}/' \
-  -e 's/bb={WIDTH:240,WIDTH_WITH_VERTICAL_PANEL:360,HEIGHT:120}/bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}/' \
-  "$file"
-grep -q 'bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$file" || {
-  echo "patch-min-size: VS Code moved its minimum window size; update the patterns in $0" >&2
-  exit 1
-}
+dir=${1:-/opt/vscode-code}
+failed=""
+
+# 1. Lower the hardcoded minimum window size. The second pattern is what the
+#    previous build's line looked like; both map to the same smaller minimum.
+js=$dir/resources/app/out/mainImpl.js
+if [ ! -f "$js" ]; then
+  echo "minimum window size: no $js" >&2
+  failed=yes
+elif ! grep -q 'bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$js"; then
+  sed -i \
+    -e 's/bb={WIDTH:400,WIDTH_WITH_VERTICAL_PANEL:600,HEIGHT:270}/bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}/' \
+    -e 's/bb={WIDTH:240,WIDTH_WITH_VERTICAL_PANEL:360,HEIGHT:120}/bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}/' \
+    "$js"
+  grep -q 'bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$js" || {
+    echo "minimum window size: pattern not found, update the patterns in $0" >&2
+    failed=yes
+  }
+fi
+
+# 2. Keep the focus in the editor type menu instead of handing it back to the
+#    editor, which closes the menu the moment it opens.
+wb=$dir/resources/app/out/vs/workbench/workbench.desktop.main.js
+if [ ! -f "$wb" ]; then
+  echo "editor type menu: no $wb" >&2
+  failed=yes
+elif ! grep -q 'dm(n,"breadcrumbs-editor-type",this.titleContainer)' "$wb"; then
+  sed -i 's/dm(n,"monaco-breadcrumb-item",this.titleContainer)||setTimeout/dm(n,"monaco-breadcrumb-item",this.titleContainer)||dm(n,"breadcrumbs-editor-type",this.titleContainer)||setTimeout/' "$wb"
+  grep -q 'dm(n,"breadcrumbs-editor-type",this.titleContainer)' "$wb" || {
+    echo "editor type menu: pattern not found, update the patterns in $0" >&2
+    failed=yes
+  }
+fi
+
+[ -z "$failed" ] || exit 1
 PATCH
 }
 
@@ -266,16 +311,15 @@ if [ ! -e "$settings" ] && [ -r /usr/lib/omalauncher-code/settings.default.json 
   cp /usr/lib/omalauncher-code/settings.default.json "$settings"
 fi
 
-# Belt and braces: re-apply the minimum window size in case the tree was
-# replaced outside install.sh (which already patched it), such as someone
-# unpacking a new tarball over /opt by hand. Normally a no-op: the helper exits
-# after one grep. If it can no longer apply, the editor still starts but won't
-# fill the screen in landscape with the keyboard open, so say that out loud
-# instead of failing silently.
-main_js=$VSCODE_DIR/resources/app/out/mainImpl.js
-if [ -x /usr/lib/omalauncher-code/patch-min-size ]; then
-  if ! why=$(/usr/lib/omalauncher-code/patch-min-size "$main_js" 2>&1); then
-    failure="minimum window size patch failed: ${why:-unknown error}"
+# Belt and braces: re-apply the patches in case the tree was replaced outside
+# install.sh (which already patched it), such as someone unpacking a new tarball
+# over /opt by hand. Normally a no-op: the helper exits after two greps. If a
+# patch can no longer apply, the editor still starts — with too small a minimum
+# window, or a menu that closes as it opens — so say that out loud instead of
+# failing silently.
+if [ -x /usr/lib/omalauncher-code/patch-vscode ]; then
+  if ! why=$(/usr/lib/omalauncher-code/patch-vscode "$VSCODE_DIR" 2>&1); then
+    failure="VS Code patch failed: ${why:-unknown error}"
     log=$VSCODE_USER_DATA/patch-failures.log
     printf '%s %s\n' "$(date -Is 2>/dev/null || echo '?')" "$failure" \
       >> "$log" 2>/dev/null || true
@@ -283,7 +327,7 @@ if [ -x /usr/lib/omalauncher-code/patch-min-size ]; then
     # A toast on the phone: the window has no room for one this early, and the
     # log only helps someone who thinks to look.
     if command -v omalauncher >/dev/null 2>&1; then
-      omalauncher notify "VS Code" "Minimum window size patch failed: reinstall omalauncher-code. Until then the window may not fill the screen in landscape with the keyboard open." >/dev/null 2>&1 || true
+      omalauncher notify "VS Code" "A patch did not apply: reinstall omalauncher-code. Until then the window may be too small in landscape with the keyboard open, and the editor type menu may close as soon as it opens." >/dev/null 2>&1 || true
     fi
   fi
 fi
@@ -333,34 +377,36 @@ SETTINGS
 
 # Best effort, on purpose: a build whose patch no longer applies is still a
 # working editor. Failing here would leave the phone with no VS Code at all,
-# which is worse than a window that doesn't fill the screen in landscape with
-# the keyboard open — and the wrapper warns about exactly that at every start.
+# which is worse than the two things these patches fix — and the wrapper warns
+# about exactly those at every start.
 apply_patch() {
   local err
-  if ! err=$("$LIB/patch-min-size" "$1" 2>&1); then
-    warn "the minimum window size patch did not apply: ${err:-unknown error}"
-    warn "installing anyway. In landscape with the keyboard open the window may not fill the screen; the launcher wrapper warns about this again, and notifies the phone, at every start."
+  if ! err=$("$LIB/patch-vscode" "$1" 2>&1); then
+    warn "a patch did not apply: ${err:-unknown error}"
+    warn "installing anyway. The editor still runs, but the window can be too small in landscape with the keyboard open, and the editor type menu (the › at the end of the breadcrumbs) can close as soon as it opens. The launcher wrapper warns again, and notifies the phone, at every start."
   fi
 }
 
 if $DRY; then
   note "would install: $BIN (wrapper)"
-  note "would install: $LIB/patch-min-size (minimum window size patch)"
+  note "would install: $LIB/patch-vscode (minimum window size and editor type menu patches)"
   note "would install: $LIB/settings.default.json (settings, first run only), $DESKTOP, $ICON"
 else
-  write_patch_helper > "$LIB/patch-min-size"
-  chmod 755 "$LIB/patch-min-size"
+  write_patch_helper > "$LIB/patch-vscode"
+  chmod 755 "$LIB/patch-vscode"
+  # Installs before 1.0.1 shipped this patch as its own helper.
+  rm -f "$LIB/patch-min-size"
   write_wrapper > "$BIN"
   chmod 755 "$BIN"
   write_settings > "$LIB/settings.default.json"
   chmod 644 "$LIB/settings.default.json"
 fi
 
-step "Applying the minimum window size to the new build"
+step "Applying the phone patches to the new build"
 if $DRY; then
-  note "would patch $DEST/resources/app/out/mainImpl.js"
+  note "would patch mainImpl.js and vs/workbench/workbench.desktop.main.js in $DEST/resources/app/out"
 else
-  apply_patch "$STAGE/resources/app/out/mainImpl.js"
+  apply_patch "$STAGE"
 fi
 
 step "Replacing $DEST"

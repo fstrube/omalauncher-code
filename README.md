@@ -32,7 +32,7 @@ repository contains no Microsoft binaries.
 | `/opt/vscode-code` | the official `linux-arm64` build, unpacks to ~1 GB |
 | `/usr/bin/omalauncher-code` | wrapper: the Wayland and proot flags VS Code needs here |
 | `/usr/lib/omalauncher-code/settings.default.json` | copied to your settings on first run only |
-| `/usr/lib/omalauncher-code/patch-min-size` | lowers VS Code's minimum window size |
+| `/usr/lib/omalauncher-code/patch-vscode` | patches VS Code's minimum window size and its editor type menu |
 | `/usr/share/applications/omalauncher-code.desktop` | the drawer entry |
 | `/usr/share/icons/vscode.png` | its icon |
 
@@ -62,11 +62,23 @@ which the wrapper does for you:
   clamps that to the minimum, the buffer ends up far taller than the space it was
   given, and the launcher draws it scaled down into the corner. Lowering the
   minimum makes the window match what the compositor asks for, so it stays full
-  width. The patch is applied at install time and re-applied on every launch,
-  and it says so out loud if a later build moves that code — a line on stderr,
-  a line in `~/.local/share/code-gui/patch-failures.log`, and a notification on
-  the phone, because the symptom is otherwise invisible until you open the
-  keyboard in landscape.
+  width.
+- **the editor type menu patch**: the `›` at the right end of the breadcrumbs is
+  the menu that switches a file between **Text Editor** and **Markdown
+  Preview**. VS Code's editor title bar returns the focus to the editor for any
+  click in it that is not on an action bar or a breadcrumb item; this button is
+  neither, so the click that opened the menu immediately handed the focus back
+  to the editor, and the menu — which closes when it loses focus — vanished in
+  the frame it appeared in. Adding the button to that check keeps the focus in
+  the menu. It is a one-string edit to VS Code's own
+  `workbench.desktop.main.js`, so opening the menu works as it does on a
+  desktop.
+
+Both patches are applied at install time and re-applied on every launch, and the
+wrapper says so out loud if a later build moves that code — a line on stderr, a
+line in `~/.local/share/code-gui/patch-failures.log`, and a notification on the
+phone, because the symptoms are otherwise easy to miss: one needs a keyboard in
+landscape, the other looks like the menu is simply broken.
 
 `DOTNET_GCHeapHardLimit` is set too: VS Code verifies extensions with a .NET
 tool that can't size its heap under proot, which otherwise makes every extension
@@ -106,18 +118,18 @@ restart, no in-place swap (`updateService.linux.doDownloadUpdate` in
 close the window, then: ./install.sh
 ```
 
-That takes a couple of minutes, keeps your settings and extensions, applies the
-minimum window size to the new tree, and warns in yellow if that patch no
-longer applies — it installs anyway, since an editor that opens is better than
-none, and the wrapper repeats the warning at every start.
+That takes a couple of minutes, keeps your settings and extensions, applies both
+patches to the new tree, and warns in yellow if one of them no longer applies —
+it installs anyway, since an editor that opens is better than none, and the
+wrapper repeats the warning at every start.
 
-The patch is also re-applied by the wrapper at every start, so a tree replaced
+The patches are also re-applied by the wrapper at every start, so a tree replaced
 by hand — a tarball unpacked over `/opt/vscode-code` — is fixed at the next
-launch. If a new build moves the code the patch touches, the wrapper can't fix
-it: the window still opens, but in landscape with the keyboard open it may not
-fill the screen. That is what the notification and
-`~/.local/share/code-gui/patch-failures.log` are for, and reinstalling is the
-fix.
+launch. If a new build moves the code a patch touches, the wrapper can't fix it:
+the window still opens, but in landscape with the keyboard open it may not fill
+the screen, and the editor type menu may close as soon as it opens. That is what
+the notification and `~/.local/share/code-gui/patch-failures.log` are for, and
+reinstalling is the fix.
 
 To keep VS Code from checking at all, set `"update.mode": "none"` in
 `~/.local/share/code-gui/User/settings.json`, or `"manual"` to check only when
@@ -159,12 +171,18 @@ app when the process it started exits. Use `omalauncher-code`.
 **Extension installs fail with a signature error.** The wrapper must have set
 `DOTNET_GCHeapHardLimit`; check you're starting it through `omalauncher-code`.
 
-**A notification says the minimum window size patch failed.** A newer build
-moved the code the patch touches, so `install.sh` warned and installed it
-anyway. The window may not fill the screen in landscape with the keyboard open;
-the error is in `~/.local/share/code-gui/patch-failures.log`, and a patched
-release or an update to the patterns in
-`/usr/lib/omalauncher-code/patch-min-size` is the fix.
+**A menu closes the moment it opens.** If it is the `›` at the right end of the
+breadcrumbs — the one that switches a file between Text Editor and Markdown
+Preview — the editor type menu patch is missing, so follow the notification
+below: `install.sh` again, or let the wrapper try at the next start. Other menus
+are unaffected by it.
+
+**A notification says a patch did not apply.** A newer build moved the code a
+patch touches, so `install.sh` warned and installed it anyway. The window may
+not fill the screen in landscape with the keyboard open, and the editor type
+menu may close as soon as it opens. The error is in
+`~/.local/share/code-gui/patch-failures.log`, and an update to the patterns in
+`/usr/lib/omalauncher-code/patch-vscode` is the fix.
 
 **Nothing in the drawer.** `/usr/share/applications/omalauncher-code.desktop`
 must exist and `Exec=` must point at `/usr/bin/omalauncher-code`.
