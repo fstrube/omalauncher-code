@@ -241,40 +241,42 @@ write_patch_helper() {
 #!/bin/sh
 # Patch VS Code's own JavaScript for a phone window, and keep the checksum it
 # records for the patched file in step (see install.sh in omalauncher-code).
-# Takes the VS Code directory. Each patch is a fixed string replacement that is a
-# no-op once it has been applied. If VS Code has moved that code the patch cannot
-# apply: the others still do, the message names the one that is missing, and the
-# exit status is non-zero.
+# Takes the VS Code directory. Each patch is a replacement that is a no-op once
+# it has been applied: the minifier renames the surrounding locals (bb → kw,
+# dm → hh) almost every release, so the patterns capture those names instead of
+# hardcoding them. If VS Code has moved the code the patch cannot apply: the
+# others still do, the message names the one that is missing, and the exit status
+# is non-zero.
 set -e
 dir=${1:-/opt/vscode-code}
 failed=""
 
-# 1. Lower the hardcoded minimum window size. The second pattern is what the
-#    previous build's line looked like; both map to the same smaller minimum.
+# 1. Lower the hardcoded minimum window size. Match the three-key object itself:
+#    the minifier renames the variable it is assigned to (bb in 1.146, kw in
+#    1.147) and has changed the numbers before too.
 js=$dir/resources/app/out/mainImpl.js
 if [ ! -f "$js" ]; then
   echo "minimum window size: no $js" >&2
   failed=yes
-elif ! grep -q 'bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$js"; then
-  sed -i \
-    -e 's/bb={WIDTH:400,WIDTH_WITH_VERTICAL_PANEL:600,HEIGHT:270}/bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}/' \
-    -e 's/bb={WIDTH:240,WIDTH_WITH_VERTICAL_PANEL:360,HEIGHT:120}/bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}/' \
-    "$js"
-  grep -q 'bb={WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$js" || {
+elif ! grep -q '{WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$js"; then
+  sed -E -i 's/\{WIDTH:[0-9]+,WIDTH_WITH_VERTICAL_PANEL:[0-9]+,HEIGHT:[0-9]+\}/{WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}/' "$js"
+  grep -q '{WIDTH:160,WIDTH_WITH_VERTICAL_PANEL:240,HEIGHT:20}' "$js" || {
     echo "minimum window size: pattern not found, update the patterns in $0" >&2
     failed=yes
   }
 fi
 
 # 2. Keep the focus in the editor type menu instead of handing it back to the
-#    editor, which closes the menu the moment it opens.
+#    editor, which closes the menu the moment it opens. The class check and the
+#    timeout after it are stable; the function and the event variable around
+#    them are not (dm(n, …) in 1.146, hh(n, …) in 1.147), so capture them.
 wb=$dir/resources/app/out/vs/workbench/workbench.desktop.main.js
 if [ ! -f "$wb" ]; then
   echo "editor type menu: no $wb" >&2
   failed=yes
-elif ! grep -q 'dm(n,"breadcrumbs-editor-type",this.titleContainer)' "$wb"; then
-  sed -i 's/dm(n,"monaco-breadcrumb-item",this.titleContainer)||setTimeout/dm(n,"monaco-breadcrumb-item",this.titleContainer)||dm(n,"breadcrumbs-editor-type",this.titleContainer)||setTimeout/' "$wb"
-  grep -q 'dm(n,"breadcrumbs-editor-type",this.titleContainer)' "$wb" || {
+elif ! grep -q '"breadcrumbs-editor-type",this.titleContainer' "$wb"; then
+  sed -E -i 's/([A-Za-z_$][A-Za-z0-9_$]*)\(([A-Za-z_$][A-Za-z0-9_$]*),"monaco-breadcrumb-item",this\.([A-Za-z_$][A-Za-z0-9_$]*)\)\|\|setTimeout/\1(\2,"monaco-breadcrumb-item",this.\3)||\1(\2,"breadcrumbs-editor-type",this.\3)||setTimeout/' "$wb"
+  grep -q '"breadcrumbs-editor-type",this.titleContainer' "$wb" || {
     echo "editor type menu: pattern not found, update the patterns in $0" >&2
     failed=yes
   }

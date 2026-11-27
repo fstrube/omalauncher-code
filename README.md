@@ -80,6 +80,12 @@ line in `~/.local/share/code-gui/patch-failures.log`, and a notification on the
 phone, because the symptoms are otherwise easy to miss: one needs a keyboard in
 landscape, the other looks like the menu is simply broken.
 
+The patterns do not hardcode the names VS Code's minifier gives its local
+variables: between 1.146 and 1.147 the minimum-size object's variable changed
+from `bb` to `kw`, and the class-check function from `dm` to `hh`. They match the
+surrounding CSS classes and object keys and capture the generated names, so a
+normal update is patched again on the next launch without a new release here.
+
 VS Code keeps a checksum of `workbench.desktop.main.js` in its own
 `product.json` and, at every start, warns that the installation "appears to be
 corrupt" when the file no longer matches. Editing the file makes it not match, so
@@ -133,13 +139,13 @@ editor that opens is better than none, and the wrapper repeats the warning at
 every start.
 
 The patches are also re-applied by the wrapper at every start, so a tree replaced
-by hand — a tarball unpacked over `/opt/vscode-code` — is fixed at the next
-launch. If a new build moves the code a patch touches, the wrapper can't fix it:
-the window still opens, but in landscape with the keyboard open it may not fill
-the screen, the editor type menu may close as soon as it opens, and VS Code may
-say the installation was modified. That is what the notification and
-`~/.local/share/code-gui/patch-failures.log` are for, and reinstalling is the
-fix.
+by hand — a tarball unpacked over `/opt/vscode-code`, or VS Code's own updater —
+is fixed at the next launch. If a new build really moves the code a patch
+touches, the wrapper can't fix it: the window still opens, but in landscape with
+the keyboard open it may not fill the screen, the editor type menu may close as
+soon as it opens, and VS Code may say the installation was modified. That is what
+the notification and `~/.local/share/code-gui/patch-failures.log` are for, and
+reinstalling is the fix.
 
 To keep VS Code from checking at all, set `"update.mode": "none"` in
 `~/.local/share/code-gui/User/settings.json`, or `"manual"` to check only when
@@ -202,6 +208,8 @@ not fill the screen in landscape with the keyboard open, the editor type menu
 may close as soon as it opens, and VS Code may report the installation as
 modified. The error is in `~/.local/share/code-gui/patch-failures.log`, and an
 update to the patterns in `/usr/lib/omalauncher-code/patch-vscode` is the fix.
+Renamed locals alone (as in 1.147) are not a reason to worry: since 1.0.3 the
+patterns capture whatever the minifier called them.
 
 **Nothing in the drawer.** `/usr/share/applications/omalauncher-code.desktop`
 must exist and `Exec=` must point at `/usr/bin/omalauncher-code`.
